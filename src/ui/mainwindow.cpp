@@ -203,11 +203,15 @@ QString MainWindow::resolveClientExe(const QString& clientPath)
     return QString();
 }
 
-// Runs the configured env script in a shell session and captures the
-// resulting environment as a list of "NAME=VALUE" entries.
+// Runs the configured env script and captures the resulting environment as
+// a list of "NAME=VALUE" entries.
+// Qt6 note: the old interactive-session approach(writing "set\n" into a cmd
+// stdin pipe) stopped working under Qt6, so the script and the environment
+// dump are now executed in one shot through "cmd /c ... && set".
 QStringList MainWindow::buildClientEnv(const QString& clientPath)
 {
     QProcess envSetProcess;
+    envSetProcess.setProcessChannelMode(QProcess::MergedChannels);
     QString envScriptPath = ui->Set_Client_envScriptEdit->text();
     QFileInfo clientFile(clientPath);
     if(envScriptPath.contains("<client dir>"))
@@ -218,35 +222,44 @@ QStringList MainWindow::buildClientEnv(const QString& clientPath)
         return QStringList();
 
     qDebug() << envScript.absoluteFilePath();
-    // use the shell session to keep the environment then read it
 #ifdef Q_OS_WIN
     // cmd /c "<path>">>nul && set
-    envSetProcess.start("cmd", {}, QProcess::Unbuffered | QProcess::ReadWrite | QProcess::Text);
-    envSetProcess.write(QString("\"" + envScript.absoluteFilePath() + "\">>nul\n").toLatin1());
-    envSetProcess.waitForReadyRead(10000);
-    envSetProcess.readAll();
-    envSetProcess.write("set\n");
+    // startCommand() passes the line through, start(program, args) would
+    // quote-escape the argument and break the "&&" chain
+    envSetProcess.startCommand(QString("cmd /c \"%1\">>nul && set").arg(envScript.absoluteFilePath()));
 #else
-    // need implementation(or test if space works)
     // sh -c '. "<path>">>/dev/null && env'
-    envSetProcess.start("sh -c \' . \"" + envScript.absoluteFilePath() + "\">>/dev/null && env");
+    envSetProcess.start("sh", {"-c", QString(". \"%1\">/dev/null && env").arg(envScript.absoluteFilePath())});
 #endif
-    envSetProcess.waitForReadyRead(10000);
+    envSetProcess.waitForFinished(15000);
     QString envSetResult = QString(envSetProcess.readAll());
+    // the cmd output uses CRLF line endings; strip the '\r' first, otherwise
+    // it stays at the end of every variable value and breaks the paths
+    // (HOME, QT_QPA_PLATFORM_PLUGIN_PATH, ...) passed to the client
+    envSetResult.remove('\r');
 #if (QT_VERSION <= QT_VERSION_CHECK(5,14,0))
-    QStringList envList = envSetResult.split("\n", QString::SkipEmptyParts);
+    const QStringList lines = envSetResult.split('\n', QString::SkipEmptyParts);
 #else
-    QStringList envList = envSetResult.split("\n", Qt::SkipEmptyParts);
+    const QStringList lines = envSetResult.split('\n', Qt::SkipEmptyParts);
 #endif
-    envSetProcess.kill();
-    if(envList.size() > 2) // the first element is "set" and the last element is the current path
+    // keep the NAME=VALUE lines only(the cmd banner/prompt lines are dropped)
+    QStringList envList;
+    for(const QString& line : lines)
     {
-        envList.removeFirst();
-        envList.removeLast();
-        return envList;
+        const int eq = line.indexOf('=');
+        if(eq <= 0)
+            continue;
+        const QString name = line.left(eq);
+        QString value = line.mid(eq + 1);
+        // the bundled client's setup.bat sets HOME with a trailing '\',
+        // which the client turns into a broken "dir\/.proxmark3" path
+        if(name.compare("HOME", Qt::CaseInsensitive) == 0)
+            while(value.endsWith('\\') || value.endsWith('/'))
+                value.chop(1);
+        envList.append(name + '=' + value);
     }
 //  qDebug() << "Get Env List" << envList;
-    return QStringList();
+    return envList;
 }
 
 void MainWindow::on_PM3_connectButton_clicked()
@@ -1279,8 +1292,12 @@ void MainWindow::uiInit()
         ui->Set_Client_configFileBox->addItem(file.fileName(), file.filePath());
     }
 
-    // Use the last one as the default one
-    ui->Set_Client_configFileBox->setCurrentIndex(ui->Set_Client_configFileBox->count() - 1);
+    // Default to the generic RRG config; the CmdAdapter adapts its command
+    // templates to the actual client at connect time
+    int defaultConfigId = ui->Set_Client_configFileBox->findData(":/config/config_rrg.json");
+    if(defaultConfigId == -1)
+        defaultConfigId = ui->Set_Client_configFileBox->count() - 1; // fallback: the last one
+    ui->Set_Client_configFileBox->setCurrentIndex(defaultConfigId);
     ui->Set_Client_configFileBox->addItem(tr("External file"), "(ext)");
 
     int configId = -1;

@@ -29,6 +29,16 @@ class CmdAdapter : public QObject
 public:
     explicit CmdAdapter(QObject* parent = nullptr);
 
+    // Make sure the bundled Windows client layout("<exedir>/libs") works:
+    // put the DLL dirs first on PATH and point Qt at its platform plugin.
+    // Harmless when the layout doesn't exist or the vars are already set.
+    static void augmentEnv(QProcessEnvironment* env, const QString& exeDir);
+
+    // Give the bundled client a qt.conf(+platforms\ copy of its qwindows.dll)
+    // so it finds its Qt platform plugin independently of the environment.
+    // Harmless when the layout doesn't exist or the files are already there.
+    static void ensureQtConf(const QString& exeDir);
+
     // Launches one offline client process. clientEnv may be empty(inherit the
     // system environment); the "<exedir>/libs" layout of the Windows client
     // bundles is detected and added to PATH automatically.

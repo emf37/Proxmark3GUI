@@ -1,4 +1,19 @@
 # Proxmark3GUI
+
+### **该Fork基于原项目使用GLM-5.3进行改进，并经过简单测试.**
+
+进行了以下修改：
+- 新版本客户端命令若有修改会自动适配，无需单独适配。
+- 自动读取客户端版本并切换至合适的配置。
+- [升级至QT6(PR#73)](https://github.com/wh201906/Proxmark3GUI/pull/73) ,修复了一些问题。
+
+局限性
+- 如果客户端的命令被删除、改名等，GUI会提示为“unknown”。
+- 如果客户端的输出格式有变化，则只能修改config.json.
+
+***
+### **以下为原Repo README**
+***
 [![downloads](https://img.shields.io/github/downloads/wh201906/Proxmark3GUI/total?label=GitHub%E4%B8%8B%E8%BD%BD%E9%87%8F)](https://github.com/wh201906/Proxmark3GUI/releases)  
 [![downloads](https://img.shields.io/sourceforge/dt/proxmark3gui.svg?label=SourceForge%E4%B8%8B%E8%BD%BD%E9%87%8F)](https://sourceforge.net/projects/proxmark3gui/)  
 

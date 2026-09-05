@@ -1,5 +1,5 @@
 {
-    "//": "Based on Proxmark3 rrg repo v4.15864, commit 1f75adcf6d",
+    "//": "Generic config for Iceman/RRG clients. Based on v4.21611-1293 (g47d0a8fa0), all commands and options verified against the client's --help output",
     "//": "You can change this file if the command format of client changes",
     "mifare classic": {
         "nested": {
@@ -70,7 +70,7 @@
             }
         },
         "restore": {
-            "cmd": "hf mf restore --<card type>",
+            "cmd": "hf mf restore --<card type> --force",
             "card type": {
                 "mini": "mini",
                 "1k": "1k",
@@ -104,7 +104,9 @@
             "cmd": "hf mf darkside"
         },
         "save sniff": {
-            "cmd": "trace save -f <filename>"
+            "cmd": "trace save -f <filename>",
+            "path cmd":"prefs show",
+            "path pattern":"trace save path\\.+\\s*(.+)$"
         },
         "load sniff": {
             "cmd": "trace load -f <filename>",

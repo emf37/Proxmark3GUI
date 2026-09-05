@@ -2,6 +2,14 @@
 
 [中文](doc/CHANGELOG/CHANGELOG_zh_CN.md)  
 
+### V0.3.0
++ The following changes were processed by GLM-5.3 (sorry I'm not familiar with QT)
++ Add support for Iceman/RRG repo v4.21611
++ Automatically refresh the client command table at GUI startup: the GUI probes the client offline for the options of every command used in the config, verifies and fixes the config templates accordingly, so it keeps working with future client updates  
++ Auto-detect Iceman clients and switch away from the official-client config  
++ Migrate to Qt6 (based on the work of [#73](https://github.com/wh201906/Proxmark3GUI/pull/73), with fixes: the serial port listener now starts properly and button ids are read via `QButtonGroup::id`)  
++ Re-implement the serial port disconnection detection with `QSerialPort` (`QSerialPortInfo::isBusy()` was removed in Qt6)  
+
 ### V0.2.8
 + Add support for Iceman/RRG repo v4.16717  
 + Fix some bugs  

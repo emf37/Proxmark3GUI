@@ -72,6 +72,7 @@ jobs:
             mingw-w64-x86_64-qt6-serialport
             mingw-w64-x86_64-qt6-tools
             mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-binutils
             make
 
       - name: qmake
@@ -86,15 +87,17 @@ jobs:
         run: make -j"$(nproc)"
         working-directory: build
 
-      # windeployqt copies the Qt DLLs, the platform plugin and the MinGW
-      # runtime DLLs(libgcc/libstdc++/libwinpthread) next to the exe, so the
-      # zip runs on machines without any Qt or MinGW installed
-      - name: Deploy Qt runtime
+      # windeployqt copies the Qt DLLs and plugins next to the exe;
+      # collect_dlls.sh adds the MinGW/MSYS2 runtime DLLs that MSYS2's Qt
+      # links against(icu, pcre2, zlib, libgcc, ...) so the zip runs on
+      # machines without any Qt, MinGW or MSYS2 installed
+      - name: Deploy Qt runtime and collect DLLs
         shell: msys2 {0}
         working-directory: build
         run: |
           if [ -f release/Proxmark3GUI.exe ]; then cd release; fi
           windeployqt6 --release Proxmark3GUI.exe
+          bash "$GITHUB_WORKSPACE/deploy/collect_dlls.sh" Proxmark3GUI.exe
 
       - name: Package (zip)
         shell: pwsh

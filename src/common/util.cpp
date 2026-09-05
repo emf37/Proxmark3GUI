@@ -1,4 +1,6 @@
 ﻿#include "util.h"
+#include <QDir>
+#include <QFileInfo>
 
 Util::ClientType Util::clientType = CLIENTTYPE_OFFICIAL;
 
@@ -140,6 +142,28 @@ bool Util::chooseLanguage(QSettings* guiSettings, QMainWindow* window)
     guiSettings->beginGroup("language");
     guiSettings->setValue("name", langMap[selectedText]);
     guiSettings->endGroup();
+
+    // first-run setup continues: ask for the client executable,
+    // the bundled client's setup.bat lives right next to it
+    QString clientPath = QFileDialog::getOpenFileName(window,
+                         tr("Select the Proxmark3 client (proxmark3.exe):"),
+                         QString(),
+                         tr("Proxmark3 client(proxmark3.exe proxmark3);;All files(*)"));
+    if(!clientPath.isEmpty())
+    {
+        guiSettings->beginGroup("Client_Path");
+        guiSettings->beginWriteArray("pathList");
+        guiSettings->setArrayIndex(0);
+        guiSettings->setValue("path", QDir::toNativeSeparators(clientPath));
+        guiSettings->endArray();
+        guiSettings->endGroup();
+        if(QFileInfo::exists(QFileInfo(clientPath).absolutePath() + "/setup.bat"))
+        {
+            guiSettings->beginGroup("Client_Env");
+            guiSettings->setValue("scriptPath", "<client dir>/setup.bat");
+            guiSettings->endGroup();
+        }
+    }
     guiSettings->sync();
 
     return isOk;

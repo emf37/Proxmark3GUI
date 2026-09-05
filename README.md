@@ -1,4 +1,18 @@
 # Proxmark3GUI
+
+### **This repository is based on the original project, has been improved using GLM-5.3 and has undergone basic testing.**
+
+The following changes have been made
+- New client command auto-adjust, usually don't need to update config.json.
+- Auto detect client version and switch to correct config json.
+- [Update program to QT6](https://github.com/wh201906/Proxmark3GUI/pull/73) and fix issue.
+
+Limitations
+- If the client command is lost(remove, change name，etc), GUI will report "unknown".
+- If the format of the output changes, the only way to adapt is by changing the config.json.
+***
+### **The following is the original README from the repository**
+***
 [![downloads](https://img.shields.io/github/downloads/wh201906/Proxmark3GUI/total?label=GitHub%20release%20downloads)](https://github.com/wh201906/Proxmark3GUI/releases)  
 [![downloads](https://img.shields.io/sourceforge/dt/proxmark3gui.svg?label=SourceForge%20downloads)](https://sourceforge.net/projects/proxmark3gui/)  
 
@@ -9,6 +23,7 @@ A cross-platform GUI for [Proxmark3](https://github.com/Proxmark/proxmark3)/[Pro
 [中文介绍](doc/README/README_zh_CN.md)
 
 ***
+
 
 ## Features
 

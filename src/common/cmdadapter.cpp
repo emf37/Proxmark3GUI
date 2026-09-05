@@ -6,6 +6,19 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QTime>
+
+// simple append-only debug log next to the executable, used to diagnose
+// the client startup(env, exit codes) without a debugger attached
+void cmdAdapterLog(const QString& line)
+{
+    QFile log(QCoreApplication::applicationDirPath() + "/pm3gui_debug.log");
+    if(log.open(QFile::Append | QFile::Text))
+    {
+        log.write(QString("[%1] %2\n").arg(QTime::currentTime().toString("hh:mm:ss.zzz"), line).toUtf8());
+        log.close();
+    }
+}
 
 // keys whose string value is a client command template
 static const QStringList CMD_KEYS =
@@ -23,7 +36,6 @@ static const QStringList FLAGMAP_KEYS =
 // file-local helpers, defined below
 static QString commandPathOf(const QString& templ);
 static void collectCommands(const QVariantMap& map, QStringList* out);
-static void augmentEnv(QProcessEnvironment* env, const QString& exeDir);
 
 // Known short/long spellings of the same client option. Used to rewrite a
 // template option that the probed client no longer accepts into a form it
@@ -117,7 +129,9 @@ bool CmdAdapter::startProbe(const QString& clientPath, const QStringList& client
         if(eq > 0)
             env.insert(entry.left(eq), entry.mid(eq + 1));
     }
-    augmentEnv(&env, QFileInfo(clientPath).absolutePath());
+    const QString exeDir = QFileInfo(clientPath).absolutePath();
+    augmentEnv(&env, exeDir);
+    ensureQtConf(exeDir);
     probe->setProcessEnvironment(env);
     if(!workingDir.isEmpty() && QDir(workingDir).exists())
         probe->setWorkingDirectory(workingDir);
@@ -126,6 +140,11 @@ bool CmdAdapter::startProbe(const QString& clientPath, const QStringList& client
     connect(probe, &QProcess::errorOccurred, this, &CmdAdapter::onProbeError);
     probe->start(clientPath, {"-f", "-s", scriptPath});
     watchdog->start();
+    cmdAdapterLog(QString("probe start: %1, env entries: %2, QT_QPA='%3', script: %4")
+                  .arg(clientPath)
+                  .arg(env.toStringList().size())
+                  .arg(env.value("QT_QPA_PLATFORM_PLUGIN_PATH"))
+                  .arg(scriptPath));
     return true;
 }
 
@@ -165,6 +184,7 @@ void CmdAdapter::onProbeFinished(int exitCode, QProcess::ExitStatus status)
     // drain whatever is left in the pipe
     probeOutput.append(QString::fromLatin1(probe->readAll()));
     parseProbeOutput();
+    cmdAdapterLog(QString("probe finished: exitCode=%1, commands=%2").arg(exitCode).arg(cmdFlags.size()));
     finishProbe(cmdFlags.size() >= 3,
                 QString("client commands: %1 detected, version '%2'")
                 .arg(cmdFlags.size())
@@ -175,6 +195,7 @@ void CmdAdapter::onProbeError(QProcess::ProcessError error)
 {
     if(probe == nullptr || probeDone)
         return;
+    cmdAdapterLog(QString("probe error: %1, sysmsg: %2").arg(int(error)).arg(probe->errorString()));
     if(error == QProcess::FailedToStart)
         finishProbe(false, "client could not be started for the command check");
 }
@@ -568,12 +589,38 @@ static void collectCommands(const QVariantMap& map, QStringList* out)
     }
 }
 
+// The bundled client ships its Qt platform plugin as "<exedir>/libs/qwindows.dll",
+// but Qt looks for "<exedir>/platforms/qwindows.dll"(or via qt.conf). Write the
+// matching qt.conf and a platforms\ copy once, so the client finds its plugin
+// no matter how its environment is set up.
+void CmdAdapter::ensureQtConf(const QString& exeDir)
+{
+    if(exeDir.isEmpty() || !QFileInfo::exists(exeDir + "/libs/qwindows.dll"))
+        return;
+    const QString confPath = exeDir + "/qt.conf";
+    const QString platformDir = exeDir + "/libs/platforms";
+    if(QFileInfo::exists(confPath) && QFileInfo::exists(platformDir + "/qwindows.dll"))
+        return;
+    QDir().mkpath(platformDir);
+    if(!QFileInfo::exists(platformDir + "/qwindows.dll"))
+        QFile::copy(exeDir + "/libs/qwindows.dll", platformDir + "/qwindows.dll");
+    if(!QFileInfo::exists(confPath))
+    {
+        QFile conf(confPath);
+        if(conf.open(QFile::WriteOnly | QFile::Text))
+        {
+            conf.write("[Paths]\nPlugins = libs\n");
+            conf.close();
+        }
+    }
+}
+
 // Mirror what the bundled Windows client's setup.bat does("<exedir>/libs"
 // layout): put the DLL dirs first on PATH and point Qt at its platform
-// plugin, so the probe works even without a user-configured env script.
+// plugin, so the client runs even without a user-configured env script.
 // The dirs must come first, otherwise DLLs from unrelated Qt installations
 // on the system PATH shadow the bundled ones.
-static void augmentEnv(QProcessEnvironment* env, const QString& exeDir)
+void CmdAdapter::augmentEnv(QProcessEnvironment* env, const QString& exeDir)
 {
     if(exeDir.isEmpty() || !QFileInfo::exists(exeDir + "/libs"))
         return;

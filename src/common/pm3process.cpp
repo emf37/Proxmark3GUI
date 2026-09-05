@@ -1,4 +1,21 @@
 ﻿#include "pm3process.h"
+#include "cmdadapter.h"
+#include <QCoreApplication>
+#include <QFile>
+#include <QFileInfo>
+#include <QTime>
+
+// simple append-only debug log next to the executable, used to diagnose
+// the client startup(env, exit codes) without a debugger attached
+static void pm3ProcessLog(const QString& line)
+{
+    QFile log(QCoreApplication::applicationDirPath() + "/pm3gui_debug.log");
+    if(log.open(QFile::Append | QFile::Text))
+    {
+        log.write(QString("[%1] %2\n").arg(QTime::currentTime().toString("hh:mm:ss.zzz"), line).toUtf8());
+        log.close();
+    }
+}
 
 PM3Process::PM3Process(QThread* thread, QObject* parent): QProcess(parent), serialPort(new QSerialPort(this))
 {
@@ -26,6 +43,24 @@ void PM3Process::connectPM3(const QString& path, const QStringList args)
     // stash for reconnect
     currPath = path;
     currArgs = args;
+
+    // make the bundled Windows client layout("<exedir>/libs") work without a
+    // user-configured env script: put the client's own DLL dirs(libgd,
+    // libjansson, Qt plugins, ...) first on PATH. When an env script was
+    // configured, setProcEnv() already ran(queued before this slot) and its
+    // environment is kept as the base.
+    QProcessEnvironment startEnv = processEnvironment();
+    if(startEnv.isEmpty())
+        startEnv = QProcessEnvironment::systemEnvironment();
+    const QString clientDir = QFileInfo(path).absolutePath();
+    CmdAdapter::augmentEnv(&startEnv, clientDir);
+    CmdAdapter::ensureQtConf(clientDir);
+    setProcessEnvironment(startEnv);
+    pm3ProcessLog(QString("connect start: %1 %2, env entries: %3, HOME='%4', QT_QPA='%5'")
+                  .arg(path, args.join(' '))
+                  .arg(startEnv.toStringList().size())
+                  .arg(startEnv.value("HOME"))
+                  .arg(startEnv.value("QT_QPA_PLATFORM_PLUGIN_PATH")));
 
     // using "-f" option to make the client output flushed after every print.
     // single '\r' might appear. Don't use QProcess::Text there or '\r' is ignored.
