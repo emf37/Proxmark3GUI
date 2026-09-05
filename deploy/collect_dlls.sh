@@ -1,8 +1,11 @@
 #!/bin/bash
-# Recursively copy the MSYS2/MinGW DLL dependencies of $1 into its directory.
+# Recursively copy the MinGW/Qt DLL dependencies of $1 into its directory.
 # Windows system DLLs are skipped. Usage: collect_dlls.sh <path-to-exe>
+#
+# The Qt DLL location is taken from qmake(found on PATH), so this works for
+# the official Qt binaries and for MSYS2's Qt alike.
 set -u
-BIN=/mingw64/bin
+QT_BIN=$(qmake -query QT_HOST_BINS 2>/dev/null)
 target_dir=$(dirname "$1")
 target_name=$(basename "$1")
 cd "$target_dir" || exit 1
@@ -22,6 +25,17 @@ is_system_dll() {
     esac
 }
 
+find_dll() {
+    # look next to the exe first, then in the Qt bin dir, then on PATH
+    if [ -f "$1" ]; then
+        echo "$1"
+    elif [ -n "$QT_BIN" ] && [ -f "$QT_BIN/$1" ]; then
+        echo "$QT_BIN/$1"
+    else
+        command -v "$1" 2>/dev/null
+    fi
+}
+
 collect() {
     local file="$1"
     [ -n "${done_files[$file]:-}" ] && return
@@ -30,10 +44,12 @@ collect() {
     for dll in $(objdump -p "$file" 2>/dev/null | grep 'DLL Name' | awk '{print $3}'); do
         is_system_dll "$dll" && continue
         if [ ! -f "$dll" ]; then
-            if [ -f "$BIN/$dll" ]; then
-                cp "$BIN/$dll" .
+            local src
+            src=$(find_dll "$dll")
+            if [ -n "$src" ]; then
+                cp "$src" .
             else
-                echo "WARN: $dll not found in $BIN (dependency of $file)" >&2
+                echo "WARN: $dll not found (dependency of $file)" >&2
                 continue
             fi
         fi

@@ -2,6 +2,8 @@
 
 [中文](doc/CHANGELOG/CHANGELOG_zh_CN.md)  
 
+### V0.3.1
++ Windows build env switch to official QT6.8.3 from MSYS2,optimized package size
 ### V0.3.0
 + The following changes were processed by GLM-5.3 (sorry I'm not familiar with QT)
 + Add support for Iceman/RRG repo v4.21611

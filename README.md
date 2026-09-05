@@ -1,6 +1,6 @@
 # Proxmark3GUI
 
-### **This repository is based on the original project, has been improved using GLM-5.3 and has undergone basic testing.**
+### **This fork is based on the original project, has been improved using GLM-5.3 and has undergone basic testing.**
 
 The following changes have been made
 - New client command auto-adjust, usually don't need to update config.json.

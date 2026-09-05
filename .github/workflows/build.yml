@@ -54,50 +54,47 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    # MSYS2's own Qt6 package: Qt and MinGW GCC come from the same repo and
-    # are built against each other, so there is no toolchain mismatch
+    # Official Qt 6.8 MinGW 64-bit binaries + the matching MinGW 13.1
+    # toolchain. The official Qt is preferred over MSYS2's Qt because it
+    # statically links icu/pcre2/harfbuzz/..., which keeps the deployed
+    # package ~40MB smaller.
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup MSYS2 (MinGW64 + Qt6)
-        uses: msys2/setup-msys2@v2
+      - name: Install Qt 6.8.3 (official MinGW 64-bit)
+        uses: jurplel/install-qt-action@v4
         with:
-          msystem: MINGW64
-          release: false
-          update: false
-          install: >-
-            mingw-w64-x86_64-qt6-base
-            mingw-w64-x86_64-qt6-serialport
-            mingw-w64-x86_64-qt6-tools
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-binutils
-            make
+          version: '6.8.3'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_mingw'
+          modules: 'qtserialport'
+          tools: 'tools_mingw1310'
 
       - name: qmake
-        shell: msys2 {0}
+        shell: cmd
         run: |
-          mkdir -p build
+          mkdir build
           cd build
-          qmake6 ../src
+          qmake ..\src
 
       - name: make
-        shell: msys2 {0}
-        run: make -j"$(nproc)"
+        shell: cmd
+        run: mingw32-make -j%NUMBER_OF_PROCESSORS%
         working-directory: build
 
-      # windeployqt copies the Qt DLLs and plugins next to the exe;
-      # collect_dlls.sh adds the MinGW/MSYS2 runtime DLLs that MSYS2's Qt
-      # links against(icu, pcre2, zlib, libgcc, ...) so the zip runs on
-      # machines without any Qt, MinGW or MSYS2 installed
+      # windeployqt copies the Qt DLLs and plugins; collect_dlls.sh adds the
+      # MinGW runtime DLLs, so the zip runs on machines without any Qt or
+      # MinGW installed
       - name: Deploy Qt runtime and collect DLLs
-        shell: msys2 {0}
+        shell: cmd
         working-directory: build
         run: |
-          if [ -f release/Proxmark3GUI.exe ]; then cd release; fi
-          windeployqt6 --release Proxmark3GUI.exe
-          bash "$GITHUB_WORKSPACE/deploy/collect_dlls.sh" Proxmark3GUI.exe
+          if exist release\Proxmark3GUI.exe cd release
+          windeployqt --release Proxmark3GUI.exe
+          bash "%GITHUB_WORKSPACE%\deploy\collect_dlls.sh" Proxmark3GUI.exe
 
       - name: Package (zip)
         shell: pwsh
@@ -106,7 +103,8 @@ jobs:
           $sha = $env:GITHUB_SHA.Substring(0, 7)
           $bin = "build/release"
           if (-not (Test-Path "$bin/Proxmark3GUI.exe")) { $bin = "build" }
-          # drop the object/moc files MSYS2 puts next to the exe
+          New-Item -ItemType Directory -Force "$bin/data" | Out-Null
+          # drop the object/moc files the build puts next to the exe
           $items = Get-ChildItem $bin | Where-Object { $_.Extension -ne ".o" -and $_.Name -notlike "moc_*" -and $_.Name -notlike "*.res" }
           Compress-Archive -Path $items.FullName -DestinationPath "Proxmark3GUI-$ver-win64-$sha.zip"
 
