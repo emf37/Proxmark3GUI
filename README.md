@@ -57,11 +57,11 @@ You can also download them in SourceForge
 cd ~
 sudo apt-get update
 sudo apt-get install git build-essential
-sudo apt-get install qt5-default libqt5serialport5-dev
+sudo apt-get install qt6-base-dev qt6-serialport-dev
 git clone https://github.com/wh201906/Proxmark3GUI.git --depth=1
 cd Proxmark3GUI
 mkdir build && cd build
-qmake ../src
+qmake6 ../src
 make -j4 && make clean
 ./Proxmark3GUI
 ```
@@ -70,12 +70,11 @@ make -j4 && make clean
 ```
 cd ~
 brew update
-brew install qt@5
-brew link qt5 --force
+brew install qt@6
 git clone https://github.com/wh201906/Proxmark3GUI.git --depth=1
 cd Proxmark3GUI
 mkdir build && cd build
-qmake ../src
+qmake6 ../src
 make -j4 && make clean
 open Proxmark3GUI.app
 ```

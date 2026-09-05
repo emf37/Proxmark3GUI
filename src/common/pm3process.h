@@ -6,7 +6,6 @@
 #include <QString>
 #include <QDebug>
 #include <QTimer>
-#include <QtSerialPort/QSerialPortInfo>
 #include <QtSerialPort/QSerialPort>
 #include <QProcessEnvironment>
 #include <QDir>
@@ -39,7 +38,7 @@ private:
     QString* requiredOutput; // It only works in this class now
     void setRequiringOutput(bool st);// It only works in this class now
     QTimer* serialListener;
-    QSerialPortInfo* portInfo;
+    QSerialPort* serialPort; // replaces the Qt5 QSerialPortInfo::isBusy() check
     QString currPath;
     QString currPort = "";
     QStringList currArgs;

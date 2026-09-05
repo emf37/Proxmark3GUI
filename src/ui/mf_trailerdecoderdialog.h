@@ -25,7 +25,7 @@ private slots:
 
     void on_accessBitsEdit_textChanged(const QString& arg1);
 
-    void on_blockSizeChanged(int id, bool st);
+    void on_blockSizeChanged(QAbstractButton* button, bool checked);
 
     void on_boxChanged();
 private:

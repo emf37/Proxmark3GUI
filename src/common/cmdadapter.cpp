@@ -1,4 +1,4 @@
-#include "cmdadapter.h"
+﻿#include "cmdadapter.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -19,6 +19,11 @@ static const QStringList FLAGMAP_KEYS =
 {
     "card type", "key type", "known key type", "target key type", "t5555 flag", "t55x7 flag"
 };
+
+// file-local helpers, defined below
+static QString commandPathOf(const QString& templ);
+static void collectCommands(const QVariantMap& map, QStringList* out);
+static void augmentEnv(QProcessEnvironment* env, const QString& exeDir);
 
 // Known short/long spellings of the same client option. Used to rewrite a
 // template option that the probed client no longer accepts into a form it
@@ -102,14 +107,18 @@ bool CmdAdapter::startProbe(const QString& clientPath, const QStringList& client
     // don't flash a console window when probing at GUI startup
     probe->setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments* args)
     {
-        *static_cast<unsigned long*>(args->flags) |= 0x08000000; // CREATE_NO_WINDOW
+        args->flags |= 0x08000000; // CREATE_NO_WINDOW(flags is a value in Qt6)
     });
 #endif
-    QStringList env = clientEnv;
-    if(env.isEmpty())
-        env = QProcessEnvironment::systemEnvironment().toStringList();
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    for(const QString& entry : clientEnv)
+    {
+        const int eq = entry.indexOf('=');
+        if(eq > 0)
+            env.insert(entry.left(eq), entry.mid(eq + 1));
+    }
     augmentEnv(&env, QFileInfo(clientPath).absolutePath());
-    probe->setEnvironment(env);
+    probe->setProcessEnvironment(env);
     if(!workingDir.isEmpty() && QDir(workingDir).exists())
         probe->setWorkingDirectory(workingDir);
     connect(probe, &QProcess::readyRead, this, &CmdAdapter::onProbeReadyRead);
@@ -320,7 +329,7 @@ void CmdAdapter::adaptEntryMap(QVariantMap& entry, Stats* stats)
     QStringList templKeys;
     for(const QString& key : CMD_KEYS)
     {
-        if(entry.contains(key) && entry.value(key).type() == QVariant::String)
+        if(entry.contains(key) && entry.value(key).userType() == QMetaType::QString)
             templKeys.append(key);
     }
 
@@ -361,13 +370,13 @@ void CmdAdapter::adaptEntryMap(QVariantMap& entry, Stats* stats)
             {
                 if(!entry.contains(key))
                     continue;
-                if(entry.value(key).type() == QVariant::Map)
+                if(entry.value(key).userType() == QMetaType::QVariantMap)
                 {
                     QVariantMap flagMap = entry.value(key).toMap();
                     adaptFlagMap(flagMap, placeholderPrefix.value(key, ""), cmdPath, stats);
                     entry[key] = flagMap;
                 }
-                else if(entry.value(key).type() == QVariant::String)
+                else if(entry.value(key).userType() == QMetaType::QString)
                 {
                     // single flag value, e.g. "t5555 flag": "--q5" fills "<type>"
                     const QString placeholder = (key == "t5555 flag" || key == "t55x7 flag")
@@ -378,7 +387,7 @@ void CmdAdapter::adaptEntryMap(QVariantMap& entry, Stats* stats)
                 }
             }
             // raw sequences(e.g. Magic Card gen1 lock commands) are verified as-is
-            if(entry.contains("sequence") && entry.value("sequence").type() == QVariant::StringList)
+            if(entry.contains("sequence") && entry.value("sequence").userType() == QMetaType::QStringList)
             {
                 const QStringList sequence = entry.value("sequence").toStringList();
                 for(const QString& item : sequence)
@@ -407,7 +416,7 @@ void CmdAdapter::adaptEntryMap(QVariantMap& entry, Stats* stats)
     // recurse into nested maps, skipping the flag maps handled above
     for(auto it = entry.begin(); it != entry.end(); it++)
     {
-        if(it.value().type() != QVariant::Map || FLAGMAP_KEYS.contains(it.key()))
+        if(it.value().userType() != QMetaType::QVariantMap || FLAGMAP_KEYS.contains(it.key()))
             continue;
         QVariantMap child = it.value().toMap();
         adaptEntryMap(child, stats);
@@ -526,7 +535,7 @@ QStringList CmdAdapter::flagsFor(const QString& cmdPath) const
 // "hf mf rdbl --blk <block> -k <key>" -> "hf mf rdbl"
 // Leading tokens are the command path; it ends at the first option,
 // placeholder or value token.
-QString CmdAdapter::commandPathOf(const QString& templ)
+static QString commandPathOf(const QString& templ)
 {
     QStringList path;
 #if (QT_VERSION <= QT_VERSION_CHECK(5, 14, 0))
@@ -544,17 +553,17 @@ QString CmdAdapter::commandPathOf(const QString& templ)
 }
 
 // Collect every command path referenced by a config tree.
-void CmdAdapter::collectCommands(const QVariantMap& map, QStringList* out)
+static void collectCommands(const QVariantMap& map, QStringList* out)
 {
     for(auto it = map.begin(); it != map.end(); it++)
     {
-        if(it.value().type() == QVariant::String && CMD_KEYS.contains(it.key()))
+        if(it.value().userType() == QMetaType::QString && CMD_KEYS.contains(it.key()))
         {
             const QString path = commandPathOf(it.value().toString());
             if(!path.isEmpty() && !out->contains(path))
                 out->append(path);
         }
-        else if(it.value().type() == QVariant::Map)
+        else if(it.value().userType() == QMetaType::QVariantMap)
             collectCommands(it.value().toMap(), out);
     }
 }
@@ -564,7 +573,7 @@ void CmdAdapter::collectCommands(const QVariantMap& map, QStringList* out)
 // plugin, so the probe works even without a user-configured env script.
 // The dirs must come first, otherwise DLLs from unrelated Qt installations
 // on the system PATH shadow the bundled ones.
-void CmdAdapter::augmentEnv(QStringList* env, const QString& exeDir)
+static void augmentEnv(QProcessEnvironment* env, const QString& exeDir)
 {
     if(exeDir.isEmpty() || !QFileInfo::exists(exeDir + "/libs"))
         return;
@@ -576,23 +585,14 @@ void CmdAdapter::augmentEnv(QStringList* env, const QString& exeDir)
     const QString libDir = exeDir + "/libs";
     auto prependVar = [env, sep](const char* name, const QStringList& values)
     {
-        const QString prefix = QString(name) + '=';
-        for(QString& entry : *env)
+        QStringList merged = values;
+        const QStringList current = env->value(name).split(sep, Qt::SkipEmptyParts);
+        for(const QString& part : current)
         {
-            if(entry.startsWith(prefix, Qt::CaseInsensitive))
-            {
-                const QString current = entry.mid(prefix.length());
-                QStringList merged = values;
-                for(const QString& part : current.split(sep, Qt::SkipEmptyParts))
-                {
-                    if(!merged.contains(part, Qt::CaseInsensitive))
-                        merged.append(part);
-                }
-                entry = prefix + merged.join(sep);
-                return;
-            }
+            if(!merged.contains(part, Qt::CaseInsensitive))
+                merged.append(part);
         }
-        env->append(prefix + values.join(sep));
+        env->insert(name, merged.join(sep));
     };
     prependVar("PATH", {exeDir, libDir, libDir + "/shell"});
     prependVar("QT_QPA_PLATFORM_PLUGIN_PATH", {libDir});

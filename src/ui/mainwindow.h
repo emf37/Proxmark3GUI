@@ -58,7 +58,7 @@ public slots:
     void refreshCMD(const QString& cmd);
     void setStatusBar(QLabel* target, const QString& text);
     void onPM3StateChanged(bool st, const QString& info);
-    void MF_onMFCardTypeChanged(int id, bool st);
+    void MF_onMFCardTypeChanged(QAbstractButton* button, bool checked);
     void on_Raw_keyPressed(QObject *obj_addr, QEvent &event);
     void on_MF_keyWidget_resized(QObject *obj_addr, QEvent &event);
     void onPM3ErrorOccurred(QProcess::ProcessError error);

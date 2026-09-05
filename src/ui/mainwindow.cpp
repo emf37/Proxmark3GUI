@@ -13,22 +13,21 @@ MainWindow::MainWindow(QWidget *parent):
     myInfo = new QAction("wh201906", this);
     currVersion = new QAction(tr("Ver: ") + QApplication::applicationVersion().section('.', 0, -2), this); // ignore the 4th version number
     checkUpdate = new QAction(tr("Check Update"), this);
-    connect(dockAllWindows, &QAction::triggered, [ = ]()
+    connect(dockAllWindows, &QAction::triggered, [this]()
     {
         for(int i = 0; i < dockList.size(); i++)
             dockList[i]->setFloating(false);
     });
-    connect(myInfo, &QAction::triggered, [ = ]()
+    connect(myInfo, &QAction::triggered, [this]()
     {
         QDesktopServices::openUrl(QUrl("https://github.com/wh201906"));
     });
-    connect(checkUpdate, &QAction::triggered, [ = ]()
+    connect(checkUpdate, &QAction::triggered, [this]()
     {
         QDesktopServices::openUrl(QUrl("https://github.com/wh201906/Proxmark3GUI/releases"));
     });
 
     settings = new QSettings("GUIsettings.ini", QSettings::IniFormat);
-    settings->setIniCodec("UTF-8");
 
     pm3Thread = new QThread(this);
     connect(QApplication::instance(), &QApplication::aboutToQuit, pm3Thread, &QThread::quit);
@@ -534,11 +533,12 @@ void MainWindow::on_MF_keyWidget_resized(QObject* obj_addr, QEvent& event)
     }
 }
 
-void MainWindow::MF_onMFCardTypeChanged(int id, bool st)
+void MainWindow::MF_onMFCardTypeChanged(QAbstractButton* button, bool checked)
 {
     MFCardTypeBtnGroup->blockSignals(true);
+    const int id = MFCardTypeBtnGroup->id(button);
     qDebug() << id << MFCardTypeBtnGroup->checkedId();
-    if(!st)
+    if(!checked)
     {
         int result;
         if(id > MFCardTypeBtnGroup->checkedId()) // id is specified in uiInit() with a proper order, so I can compare the size by id.
@@ -1058,7 +1058,7 @@ void MainWindow::on_MF_Sniff_loadButton_clicked() // use a tmp file to support c
     qDebug() << filename;
     if(filename != "")
     {
-        QString tmpFile = "tmp" + QString::number(QDateTime::currentDateTimeUtc().toTime_t()) + defaultExtension;
+        QString tmpFile = "tmp" + QString::number(QDateTime::currentDateTimeUtc().toSecsSinceEpoch()) + defaultExtension;
         if(QFile::copy(filename, clientTracePath.absolutePath() + "/" + tmpFile))
         {
             mifare->loadSniff(tmpFile);
@@ -1095,7 +1095,7 @@ void MainWindow::on_MF_Sniff_saveButton_clicked()
     qDebug() << filename;
     if(filename != "")
     {
-        QString tmpFile = "tmp" + QString::number(QDateTime::currentDateTimeUtc().toTime_t()) + defaultExtension;
+        QString tmpFile = "tmp" + QString::number(QDateTime::currentDateTimeUtc().toSecsSinceEpoch()) + defaultExtension;
         mifare->saveSniff(tmpFile);
         for(int i = 0; i < 100; i++)
         {
@@ -1213,7 +1213,7 @@ void MainWindow::uiInit()
     MFCardTypeBtnGroup->addButton(ui->MF_Type_1kButton, 1);
     MFCardTypeBtnGroup->addButton(ui->MF_Type_2kButton, 2);
     MFCardTypeBtnGroup->addButton(ui->MF_Type_4kButton, 4);
-    connect(MFCardTypeBtnGroup, QOverload<int, bool>::of(&QButtonGroup::buttonToggled), this, &MainWindow::MF_onMFCardTypeChanged);
+    connect(MFCardTypeBtnGroup, &QButtonGroup::buttonToggled, this, &MainWindow::MF_onMFCardTypeChanged);
 
     ui->MF_keyWidget->installEventFilter(this);
     ui->MF_dataWidget->installEventFilter(this);
@@ -1530,7 +1530,7 @@ void MainWindow::loadClientPathList()
     settings->endGroup();
 
     ui->PM3_pathBox->clear();
-    for(const QString& clientPath : qAsConst(m_clientPathList))
+    for(const QString& clientPath : std::as_const(m_clientPathList))
         ui->PM3_pathBox->addItem(clientPath);
 }
 

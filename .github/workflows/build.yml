@@ -1,11 +1,8 @@
 name: Build
 
-# Proxmark3GUI CI: builds the Qt5 GUI on Linux and Windows.
+# Proxmark3GUI CI: builds the GUI on Linux and Windows.
 # - every push / PR: compile check, binaries as workflow artifacts
 # - pushing a tag starting with "v": binaries are also attached to a GitHub Release
-#
-# Note: the code base targets Qt5 (QSettings::setIniCodec etc.), so both jobs
-# use Qt 5.15.x on purpose. Do not "upgrade" them to Qt6.
 
 on:
   push:
@@ -19,16 +16,16 @@ permissions:
 
 jobs:
   build-linux:
-    # Qt 5.15 from the distro packages
+    # Qt6 from the distro packages
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Qt5
+      - name: Install Qt6
         run: |
           sudo apt-get update
-          sudo apt-get install -y qtbase5-dev qt5-qmake libqt5serialport5-dev libgl1-mesa-dev
+          sudo apt-get install -y qt6-base-dev qt6-serialport-dev libgl1-mesa-dev
 
       - name: Read project version
         id: ver
@@ -38,7 +35,7 @@ jobs:
         run: |
           mkdir build
           cd build
-          qmake ../src
+          qmake6 ../src
 
       - name: make
         run: make -j"$(nproc)"
@@ -57,22 +54,24 @@ jobs:
           if-no-files-found: error
 
   build-windows:
-    # MSYS2's own Qt5 package: Qt and MinGW GCC come from the same repo and
+    # MSYS2's own Qt6 package: Qt and MinGW GCC come from the same repo and
     # are built against each other, so there is no toolchain mismatch
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup MSYS2 (MinGW64 + Qt5)
+      - name: Setup MSYS2 (MinGW64 + Qt6)
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           release: false
           update: false
           install: >-
-            mingw-w64-x86_64-qt5-base
-            mingw-w64-x86_64-qt5-tools
+            mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-qt6-serialport
+            mingw-w64-x86_64-qt6-tools
+            mingw-w64-x86_64-gcc
             make
 
       - name: qmake
@@ -80,7 +79,7 @@ jobs:
         run: |
           mkdir -p build
           cd build
-          qmake ../src
+          qmake6 ../src
 
       - name: make
         shell: msys2 {0}
@@ -95,7 +94,7 @@ jobs:
         working-directory: build
         run: |
           if [ -f release/Proxmark3GUI.exe ]; then cd release; fi
-          windeployqt --release --compiler-runtime Proxmark3GUI.exe
+          windeployqt6 --release Proxmark3GUI.exe
 
       - name: Package (zip)
         shell: pwsh
@@ -104,7 +103,9 @@ jobs:
           $sha = $env:GITHUB_SHA.Substring(0, 7)
           $bin = "build/release"
           if (-not (Test-Path "$bin/Proxmark3GUI.exe")) { $bin = "build" }
-          Compress-Archive -Path "$bin/*" -DestinationPath "Proxmark3GUI-$ver-win64-$sha.zip"
+          # drop the object/moc files MSYS2 puts next to the exe
+          $items = Get-ChildItem $bin | Where-Object { $_.Extension -ne ".o" -and $_.Name -notlike "moc_*" -and $_.Name -notlike "*.res" }
+          Compress-Archive -Path $items.FullName -DestinationPath "Proxmark3GUI-$ver-win64-$sha.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

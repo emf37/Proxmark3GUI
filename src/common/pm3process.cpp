@@ -1,6 +1,6 @@
 ﻿#include "pm3process.h"
 
-PM3Process::PM3Process(QThread* thread, QObject* parent): QProcess(parent)
+PM3Process::PM3Process(QThread* thread, QObject* parent): QProcess(parent), serialPort(new QSerialPort(this))
 {
     moveToThread(thread);
     setProcessChannelMode(PM3Process::MergedChannels);
@@ -12,7 +12,6 @@ PM3Process::PM3Process(QThread* thread, QObject* parent): QProcess(parent)
     serialListener->setTimerType(Qt::VeryCoarseTimer);
     connect(serialListener, &QTimer::timeout, this, &PM3Process::onTimeout);
     connect(this, &PM3Process::readyRead, this, &PM3Process::onReadyRead);
-    portInfo = nullptr;
 
     qRegisterMetaType<QProcess::ProcessError>("QProcess::ProcessError");
 }
@@ -100,18 +99,15 @@ void PM3Process::setSerialListener(const QString& name, bool state)
     if(state)
     {
         currPort = name;
-        portInfo = new QSerialPortInfo(name);
+        serialPort->setPortName(name);
         serialListener->start();
         qDebug() << serialListener->thread();
     }
     else
     {
         serialListener->stop();
-        if(portInfo != nullptr)
-        {
-            delete portInfo;
-            portInfo = nullptr;
-        }
+        if(serialPort->isOpen())
+            serialPort->close();
     }
 }
 
@@ -120,15 +116,17 @@ void PM3Process::setSerialListener(bool state)
     setSerialListener(currPort, state);
 }
 
-void PM3Process::onTimeout() //when the proxmark3 client is unexpectedly terminated or the PM3 hardware is removed, the isBusy() will return false(only tested on Windows);
+void PM3Process::onTimeout()
 {
-//    isBusy() is a deprecated function because it will block the serial port when the port is not in use.
-//    However, the PM3 client is supposed to use the target serial port exclusively, so it should be fine
-//    isBusy() will always return false on Raspbian, in this case, check "Keep the client active" in the Settings panel.
-//
-//    qDebug()<<portInfo->isBusy();
-    if(!portInfo->isBusy())
+    //when the proxmark3 client is unexpectedly terminated or the PM3 hardware
+    //is removed, the port can be opened again; probe it like the old Qt5
+    //QSerialPortInfo::isBusy() check(the client is supposed to use the target
+    //serial port exclusively).
+    //The probe will always succeed on Raspbian, in this case, check "Keep the
+    //client active" in the Settings panel.
+    if(serialPort->open(QIODevice::ReadWrite))
     {
+        serialPort->close();
         killPM3();
     }
 }
@@ -159,7 +157,14 @@ void PM3Process::onReadyRead()
 void PM3Process::setProcEnv(const QStringList* env)
 {
 //    qDebug() << "passed Env List" << *env;
-    this->setEnvironment(*env);
+    QProcessEnvironment procEnv;
+    for(const QString& entry : *env)
+    {
+        int eq = entry.indexOf('=');
+        if(eq > 0)
+            procEnv.insert(entry.left(eq), entry.mid(eq + 1));
+    }
+    this->setProcessEnvironment(procEnv);
     //    qDebug() << "final Env List" << processEnvironment().toStringList();
 }
 

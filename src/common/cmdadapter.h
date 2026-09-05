@@ -7,6 +7,7 @@
 #include <QVariantMap>
 #include <QHash>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QTimer>
 
 // Keeps the GUI in sync with the Proxmark3 client it is pointed at.

@@ -112,9 +112,9 @@ void Util::setRunningState(bool st)
 bool Util::chooseLanguage(QSettings* guiSettings, QMainWindow* window)
 {
     // make sure the GUISettings is not in any group
+    // Qt6 reads INI files as UTF-8 by default(the Qt5 setIniCodec call is gone)
     QSettings* langSettings = new QSettings(":/i18n/languages.ini", QSettings::IniFormat);
     QMap<QString, QString> langMap;
-    langSettings->setIniCodec("UTF-8");
     langSettings->beginGroup("Languages");
     QStringList langList = langSettings->allKeys();
     for(int i = 0; i < langList.size(); i++)

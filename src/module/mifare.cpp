@@ -865,11 +865,11 @@ void Mifare::data_syncWithDataWidget(bool syncAll, int block)
             tmp = "";
             if(dataList->at(i) != "")
             {
-                tmp += dataList->at(i).midRef(0, 2);
+                tmp += dataList->at(i).mid(0, 2);
                 for(int j = 1; j < 16; j++)
                 {
                     tmp += " ";
-                    tmp += dataList->at(i).midRef(j * 2, 2);
+                    tmp += dataList->at(i).mid(j * 2, 2);
                 }
             }
             ui->MF_dataWidget->item(i, 2)->setText(tmp);
@@ -880,11 +880,11 @@ void Mifare::data_syncWithDataWidget(bool syncAll, int block)
         tmp = "";
         if(dataList->at(block) != "")
         {
-            tmp += dataList->at(block).midRef(0, 2);
+            tmp += dataList->at(block).mid(0, 2);
             for(int j = 1; j < 16; j++)
             {
                 tmp += " ";
-                tmp += dataList->at(block).midRef(j * 2, 2);
+                tmp += dataList->at(block).mid(j * 2, 2);
             }
         }
         ui->MF_dataWidget->item(block, 2)->setText(tmp);
@@ -1159,7 +1159,7 @@ bool Mifare::data_saveDataFile(const QString& filename, bool isBin)
         {
             for(int i = 0; i < cardType.block_size; i++)
             {
-                buff += dataList->at(i);
+                buff += dataList->at(i).toUtf8();
                 buff += "\n";
             }
         }
@@ -1238,7 +1238,7 @@ void Mifare::data_key2Data()
         if(dataList->at(getTrailerBlockId(i)) == "")
             tmp += "FF078069"; // default control bytes
         else
-            tmp += dataList->at(getTrailerBlockId(i)).midRef(12, 8);
+            tmp += dataList->at(getTrailerBlockId(i)).mid(12, 8);
 
         if(data_isKeyValid(keyBList->at(i)))
             tmp += keyBList->at(i);

@@ -4,7 +4,6 @@
 #include <QSettings>
 #include <QTranslator>
 #include <QMessageBox>
-#include <QTextCodec>
 #include <QDir>
 
 int main(int argc, char *argv[])
@@ -20,12 +19,9 @@ int main(int argc, char *argv[])
     }
     delete pluginDir;
 
-    QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-    QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
     QApplication a(argc, argv);
 
     QSettings* settings = new QSettings("GUIsettings.ini", QSettings::IniFormat);
-    settings->setIniCodec("UTF-8");
     settings->beginGroup("language");
     QString languageFile = settings->value("extPath").toString();
     QString languageName = settings->value("name").toString();
