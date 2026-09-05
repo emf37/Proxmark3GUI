@@ -40,6 +40,8 @@ MainWindow::MainWindow(QWidget *parent):
 
     util = new Util(this);
     Util::setUI(ui);
+    cmdAdapter = new CmdAdapter(this);
+    connect(cmdAdapter, &CmdAdapter::probeFinished, this, &MainWindow::onCmdProbeFinished);
     mifare = new Mifare(ui, util, this);
     lf = new LF(ui, util, this);
     t55xxTab = new T55xxTab(util);
@@ -79,7 +81,7 @@ MainWindow::~MainWindow()
     delete pm3Thread;
 }
 
-void MainWindow::loadConfig()
+QVariantMap MainWindow::loadConfigRoot(bool* ok)
 {
     QString filename = ui->Set_Client_configFileBox->currentData().toString();
     if(filename == "(ext)")
@@ -88,15 +90,38 @@ void MainWindow::loadConfig()
     QFile configList(filename);
     if(!configList.open(QFile::ReadOnly | QFile::Text))
     {
+        if(ok != nullptr)
+            *ok = false;
+        return QVariantMap();
+    }
+    if(ok != nullptr)
+        *ok = true;
+    QByteArray configData = configList.readAll();
+    return QJsonDocument::fromJson(configData).object().toVariantMap();
+}
+
+void MainWindow::loadConfig()
+{
+    bool fileOk = false;
+    QVariantMap configRoot = loadConfigRoot(&fileOk);
+    if(!fileOk)
+    {
         QMessageBox::information(this, tr("Info"), tr("Failed to load config file"));
         return;
     }
-
-    QByteArray configData = configList.readAll();
-    QJsonDocument configJson(QJsonDocument::fromJson(configData));
-    mifare->setConfigMap(configJson.object()["mifare classic"].toObject().toVariantMap());
-    lf->setConfigMap(configJson.object()["lf"].toObject().toVariantMap());
-    t55xxTab->setConfigMap(configJson.object()["t55xx"].toObject().toVariantMap());
+    QVariantMap mfMap = configRoot["mifare classic"].toMap();
+    QVariantMap lfMap = configRoot["lf"].toMap();
+    QVariantMap t55Map = configRoot["t55xx"].toMap();
+    if(cmdAdapter->isProbeOk())
+    {
+        // refresh the option spellings of the templates against the actual client
+        cmdAdapter->adaptMap(mfMap, "mifare classic");
+        cmdAdapter->adaptMap(lfMap, "lf");
+        cmdAdapter->adaptMap(t55Map, "t55xx");
+    }
+    mifare->setConfigMap(mfMap);
+    lf->setConfigMap(lfMap);
+    t55xxTab->setConfigMap(t55Map);
 }
 
 void MainWindow::initUI() // will be called by main.app
@@ -155,6 +180,76 @@ void MainWindow::on_portSearchTimer_timeout()
     }
 }
 
+// Returns the existing client executable(path with extension resolved),
+// or an empty string when the client path is invalid.
+QString MainWindow::resolveClientExe(const QString& clientPath)
+{
+    QFileInfo clientFile(clientPath);
+    QStringList extList = {""};
+#ifdef Q_OS_WIN
+    if(clientFile.suffix().isEmpty())
+    {
+        QString pathExt = QProcessEnvironment::systemEnvironment().value("pathext");
+        extList += pathExt.split(";", Qt::SkipEmptyParts);
+        if(extList.size() == 1)
+            extList += ".exe";
+    }
+#endif
+    for(const QString& ext : extList)
+    {
+        QFileInfo executable(clientFile.filePath() + ext);
+        if(executable.isFile())
+            return executable.absoluteFilePath();
+    }
+    return QString();
+}
+
+// Runs the configured env script in a shell session and captures the
+// resulting environment as a list of "NAME=VALUE" entries.
+QStringList MainWindow::buildClientEnv(const QString& clientPath)
+{
+    QProcess envSetProcess;
+    QString envScriptPath = ui->Set_Client_envScriptEdit->text();
+    QFileInfo clientFile(clientPath);
+    if(envScriptPath.contains("<client dir>"))
+        envScriptPath.replace("<client dir>", clientFile.absoluteDir().absolutePath());
+
+    QFileInfo envScript(envScriptPath);
+    if(!envScript.exists())
+        return QStringList();
+
+    qDebug() << envScript.absoluteFilePath();
+    // use the shell session to keep the environment then read it
+#ifdef Q_OS_WIN
+    // cmd /c "<path>">>nul && set
+    envSetProcess.start("cmd", {}, QProcess::Unbuffered | QProcess::ReadWrite | QProcess::Text);
+    envSetProcess.write(QString("\"" + envScript.absoluteFilePath() + "\">>nul\n").toLatin1());
+    envSetProcess.waitForReadyRead(10000);
+    envSetProcess.readAll();
+    envSetProcess.write("set\n");
+#else
+    // need implementation(or test if space works)
+    // sh -c '. "<path>">>/dev/null && env'
+    envSetProcess.start("sh -c \' . \"" + envScript.absoluteFilePath() + "\">>/dev/null && env");
+#endif
+    envSetProcess.waitForReadyRead(10000);
+    QString envSetResult = QString(envSetProcess.readAll());
+#if (QT_VERSION <= QT_VERSION_CHECK(5,14,0))
+    QStringList envList = envSetResult.split("\n", QString::SkipEmptyParts);
+#else
+    QStringList envList = envSetResult.split("\n", Qt::SkipEmptyParts);
+#endif
+    envSetProcess.kill();
+    if(envList.size() > 2) // the first element is "set" and the last element is the current path
+    {
+        envList.removeFirst();
+        envList.removeLast();
+        return envList;
+    }
+//  qDebug() << "Get Env List" << envList;
+    return QStringList();
+}
+
 void MainWindow::on_PM3_connectButton_clicked()
 {
     qDebug() << "Main:" << QThread::currentThread();
@@ -170,30 +265,9 @@ void MainWindow::on_PM3_connectButton_clicked()
     qDebug() << "port:" << port;
     QString startArgs = ui->Set_Client_startArgsEdit->text();
     QString clientPath = ui->PM3_pathBox->currentText();
-    QFileInfo clientFile(clientPath);
-    bool clientExist = false;
+    QString clientExe = resolveClientExe(clientPath);
 
-    QStringList extList = {""};
-#ifdef Q_OS_WIN
-    if(clientFile.suffix().isEmpty())
-    {
-        QString pathExt = QProcessEnvironment::systemEnvironment().value("pathext");
-        extList += pathExt.split(";", Qt::SkipEmptyParts);
-        if(extList.size() == 1)
-            extList += ".exe";
-    }
-#endif
-    for(const QString& ext : extList)
-    {
-        QFileInfo executable(clientFile.filePath() + ext);
-        if(executable.isFile())
-        {
-            clientExist = true;
-            break;
-        }
-    }
-
-    if(!clientExist)
+    if(clientExe.isEmpty())
     {
         QMessageBox::information(this, tr("Info"), tr("The client path is invalid"), QMessageBox::Ok);
         return;
@@ -212,45 +286,9 @@ void MainWindow::on_PM3_connectButton_clicked()
     QStringList args = startArgs.replace("<port>", port).split(' ');
     addClientPath(clientPath);
 
-    QProcess envSetProcess;
-    QString envScriptPath = ui->Set_Client_envScriptEdit->text();
-    if(envScriptPath.contains("<client dir>"))
-        envScriptPath.replace("<client dir>", clientFile.absoluteDir().absolutePath());
-
-    QFileInfo envScript(envScriptPath);
-    if(envScript.exists())
-    {
-        qDebug() << envScript.absoluteFilePath();
-        // use the shell session to keep the environment then read it
-#ifdef Q_OS_WIN
-        // cmd /c "<path>">>nul && set
-        envSetProcess.start("cmd", {}, QProcess::Unbuffered | QProcess::ReadWrite | QProcess::Text);
-        envSetProcess.write(QString("\"" + envScript.absoluteFilePath() + "\">>nul\n").toLatin1());
-        envSetProcess.waitForReadyRead(10000);
-        envSetProcess.readAll();
-        envSetProcess.write("set\n");
-#else
-        // need implementation(or test if space works)
-        // sh -c '. "<path>">>/dev/null && env'
-        envSetProcess.start("sh -c \' . \"" + envScript.absoluteFilePath() + "\">>/dev/null && env");
-#endif
-        envSetProcess.waitForReadyRead(10000);
-        QString envSetResult = QString(envSetProcess.readAll());
-#if (QT_VERSION <= QT_VERSION_CHECK(5,14,0))
-        clientEnv = envSetResult.split("\n", QString::SkipEmptyParts);
-#else
-        clientEnv = envSetResult.split("\n", Qt::SkipEmptyParts);
-#endif
-        if(clientEnv.size() > 2) // the first element is "set" and the last element is the current path
-        {
-            clientEnv.removeFirst();
-            clientEnv.removeLast();
-            emit setProcEnv(&clientEnv);
-        }
-//      qDebug() << "Get Env List" << clientEnv;
-    }
-    else
-        clientEnv.clear();
+    clientEnv = buildClientEnv(clientPath);
+    if(!clientEnv.isEmpty())
+        emit setProcEnv(&clientEnv);
 
     clientWorkingDir->setPath(QApplication::applicationDirPath());
     qDebug() << clientWorkingDir->absolutePath();
@@ -267,7 +305,9 @@ void MainWindow::on_PM3_connectButton_clicked()
     else if(!keepClientActive)
         emit setSerialListener(false);
 
-    envSetProcess.kill();
+    // refresh the command tables when the client changed since the last probe
+    if(cmdAdapter->probedClientPath() != clientExe)
+        startCmdProbe(clientExe);
 }
 
 void MainWindow::onPM3ErrorOccurred(QProcess::ProcessError error)
@@ -280,6 +320,49 @@ void MainWindow::onPM3ErrorOccurred(QProcess::ProcessError error)
 void MainWindow::onPM3HWConnectFailed()
 {
     QMessageBox::information(this, tr("Info"), tr("Failed to connect to the hardware"));
+}
+
+// Ask the CmdAdapter to collect the option tables of every command referenced
+// by the current config file. The probe runs the client once in offline script
+// mode in the background; its result is applied by loadConfig().
+void MainWindow::startCmdProbe(const QString& clientPath)
+{
+    if(clientPath.isEmpty())
+        return;
+    bool fileOk = false;
+    QVariantMap configRoot = loadConfigRoot(&fileOk);
+    if(!fileOk || configRoot.isEmpty())
+        return; // nothing to verify against
+    clientWorkingDir->setPath(QApplication::applicationDirPath());
+    clientWorkingDir->mkpath(ui->Set_Client_workingDirEdit->text());
+    clientWorkingDir->cd(ui->Set_Client_workingDirEdit->text());
+    cmdAdapter->startProbe(clientPath, clientEnv, clientWorkingDir->absolutePath(), configRoot);
+}
+
+void MainWindow::onCmdProbeFinished(bool ok, const QString& summary)
+{
+    if(!summary.isEmpty())
+        ui->statusbar->showMessage(summary, 10000);
+    if(!ok)
+        return;
+    // the selected config may target the official client while an Iceman
+    // client is in use: switch to the newest Iceman config so the adaptation
+    // starts from a proper base
+    if(cmdAdapter->clientVersion().contains("Iceman")
+            && ui->Set_Client_configFileBox->currentData().toString() == ":/config/config_official.json")
+    {
+        int lastConfig = ui->Set_Client_configFileBox->count() - 2; // before the "(ext)" entry
+        if(lastConfig > 0)
+        {
+            ui->Set_Client_configFileBox->setCurrentIndex(lastConfig);
+            settings->beginGroup("Client_Env");
+            settings->setValue("configFile", ui->Set_Client_configFileBox->currentData());
+            settings->endGroup();
+            ui->statusbar->showMessage(tr("Iceman client detected, using the matching config file"), 10000);
+        }
+    }
+    if(pm3state) // already connected: re-apply the config with the refreshed commands
+        loadConfig();
 }
 
 void MainWindow::onPM3StateChanged(bool st, const QString& info)
@@ -1267,6 +1350,11 @@ void MainWindow::uiInit()
 
     on_Raw_CMDHistoryBox_stateChanged(Qt::Unchecked);
 
+    // check the client's commands in the background; the result is applied
+    // whenever the config is loaded(on connect) and shown on the status bar
+    QString startupExe = resolveClientExe(ui->PM3_pathBox->currentText());
+    if(!startupExe.isEmpty())
+        startCmdProbe(startupExe);
 }
 
 void MainWindow::signalInit()

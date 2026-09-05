@@ -29,6 +29,7 @@
 
 #include "common/myeventfilter.h"
 #include "common/pm3process.h"
+#include "common/cmdadapter.h"
 #include "module/mifare.h"
 #include "module/lf.h"
 #include "module/t55xxtab.h"
@@ -62,6 +63,7 @@ public slots:
     void on_MF_keyWidget_resized(QObject *obj_addr, QEvent &event);
     void onPM3ErrorOccurred(QProcess::ProcessError error);
     void onPM3HWConnectFailed();
+    void onCmdProbeFinished(bool ok, const QString& summary);
 private slots:
 
     void on_PM3_connectButton_clicked();
@@ -241,6 +243,10 @@ private:
     int stashedIndex = -1;
 
     void uiInit();
+    QString resolveClientExe(const QString& clientPath);
+    QStringList buildClientEnv(const QString& clientPath);
+    QVariantMap loadConfigRoot(bool* ok = nullptr);
+    void startCmdProbe(const QString& clientPath);
 
     PM3Process* pm3;
     bool pm3state;
@@ -251,6 +257,7 @@ private:
     QStringList portList;
     QStringList clientEnv;
     QDir* clientWorkingDir;
+    CmdAdapter* cmdAdapter;
 
     T55xxTab* t55xxTab;
     Mifare* mifare;
